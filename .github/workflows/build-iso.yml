@@ -1,0 +1,46 @@
+name: Build Arch Linux V3 Dual-Edition Live USB ISO (MacBook A1708 & Acer Nitro V16)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space on Runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      - name: Build Live USB ISO inside Privileged Arch Container
+        run: |
+          chmod +x build-iso.sh install-arch-live.sh setup-arch-v3-dual.sh arch-v3-welcome.sh
+          docker run --privileged --rm -e WORKSPACE=/workspace -v "$PWD":/workspace archlinux:latest bash /workspace/build-iso.sh
+
+      - name: Upload ISO to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v3.0-calamares-${{ github.run_number }}
+          name: "Arch Linux Custom V3 Live USB ISO (MacBook Pro A1708 & Acer Nitro V 16 Intel+NVIDIA)"
+          body: |
+            ISO sumber eksperimental Arch V3 dengan XFCE Live dan entry point Calamares GUI. Build ini harus diuji dalam VM sebelum dipakai pada perangkat fisik.
+            Mendeteksi otomatis MacBook Pro A1708 atau Acer Nitro V 16 (Intel + NVIDIA RTX).
+            Live desktop memakai XFCE. Dialog awal menyediakan pilihan desktop: KDE Plasma, GNOME, XFCE, atau Hyprland. Penerapan pilihan ke proses instalasi Calamares belum dinyatakan tervalidasi.
+            Hanya desktop pilihan yang dipasang; Integrasi driver/perangkat juga memerlukan validasi di kedua laptop.
+
+            Tulis ke flashdisk dengan `make-live-usb.sh` (Linux/macOS), Rufus mode DD, atau balenaEtcher.
+            Verifikasi dengan file `.sha256` yang menyertai ISO.
+          files: |
+            out-iso/*.iso
+            out-iso/*.sha256
