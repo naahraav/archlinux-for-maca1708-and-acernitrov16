@@ -36,6 +36,26 @@ MAC_PARAMS="nvme_core.default_ps_max_latency_us=0 intremap=nosid mem_sleep_defau
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
+# --- Mode Otomatis dari GUI Zenity (--from-gui) ------------------------------
+FROM_GUI=0
+if [[ "${1:-}" == "--from-gui" && -f /var/lib/arch-v3/gui-answers.env ]]; then
+    FROM_GUI=1
+    # shellcheck disable=SC1091
+    source /var/lib/arch-v3/gui-answers.env
+    PROFILE="$ARCH_V3_PROFILE"
+    DESKTOP="$ARCH_V3_DESKTOP"
+    INSTALL_MODE="$ARCH_V3_INSTALL_MODE"
+    FS_TYPE="$ARCH_V3_FS_TYPE"
+    DISK="$ARCH_V3_DISK"
+    NEW_HOSTNAME="$ARCH_V3_HOSTNAME"
+    USERNAME="$ARCH_V3_USERNAME"
+    USER_PW="$ARCH_V3_USER_PW"
+    TIMEZONE="$ARCH_V3_TIMEZONE"
+    RUN_SETUP="y"
+    UPDATE_MIRRORS="n"
+fi
+
+
 # --- Helper input ------------------------------------------------------------
 ask() {  # ask "Pertanyaan" "default"  -> stdout
     local prompt="$1" def="${2:-}" ans
@@ -524,21 +544,28 @@ finish() {
 main() {
     clear 2>/dev/null || true
     echo "=============================================================================="
-    echo "  ARCH LINUX V3 - INSTALLER LIVE USB (MacBook Pro A1708 & Acer Nitro V 16)"
+    echo "  ARCH LINUX V3.1 - INSTALLER LIVE USB (MacBook Pro A1708 & Acer Nitro V 16)"
     echo "=============================================================================="
     preflight
-    detect_profile
-    ensure_network
-    detect_live_disk
-    choose_install_mode
-    gather_info
-    summary_and_confirm
+    if (( FROM_GUI == 1 )); then
+        info "Menjalankan konfigurasi dari GUI Wizard..."
+        ensure_network
+        detect_live_disk
+    else
+        detect_profile
+        ensure_network
+        detect_live_disk
+        choose_install_mode
+        gather_info
+        summary_and_confirm
+    fi
 
     if [[ $INSTALL_MODE == "auto" ]]; then partition_auto; else partition_manual; fi
     install_base
     configure_system
     install_bootloader
     setup_firstboot
+    rm -f /var/lib/arch-v3/gui-answers.env
     finish
 }
 main "$@"

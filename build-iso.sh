@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Membangun ISO Arch V3 Dual Edition (Live USB + installer).
-# Dijalankan DI DALAM container archlinux:latest (lihat .github/workflows/build-iso.yml)
-#   docker run --privileged --rm -v "$PWD":/workspace archlinux:latest bash /workspace/build-iso.sh
+# Membangun ISO Arch V3.1 Dual Edition (Live USB XFCE + GUI Installer).
+# Dijalankan DI DALAM container archlinux:latest
 # ==============================================================================
 set -euo pipefail
 
@@ -15,43 +14,13 @@ AIROOTFS="$PROFILE_DIR/airootfs"
 # Parameter kernel aman untuk NVMe & hybrid GPU saat Live Boot
 LIVE_KPARAMS="nvme_core.default_ps_max_latency_us=0 intremap=nosid"
 
-# Calamares is not available from the standard Arch repositories in this build.
-# Build the AUR package in a non-root account and expose it through a local pacman repo.
 pacman -Syu --noconfirm archiso git base-devel sudo
-if ! id builder >/dev/null 2>&1; then
-    useradd --create-home --groups wheel builder
-fi
-printf 'builder ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/90-builder
-chmod 440 /etc/sudoers.d/90-builder
-mkdir -p /tmp/calamares-aur "$WORKSPACE/localrepo"
-chown -R builder:builder /tmp/calamares-aur
-if ! git clone https://aur.archlinux.org/calamares.git /tmp/calamares-aur/repo; then
-    echo "ERROR: Could not clone the Calamares AUR package." >&2
-    exit 1
-fi
-chown -R builder:builder /tmp/calamares-aur/repo
-if ! runuser -u builder -- bash -lc 'cd /tmp/calamares-aur/repo && makepkg -s --noconfirm'; then
-    echo "ERROR: Building the Calamares AUR package failed. See the log above." >&2
-    exit 1
-fi
-mapfile -t CALAMARES_PKGS < <(find /tmp/calamares-aur/repo -maxdepth 1 -type f -name 'calamares-*.pkg.tar.*' ! -name '*.sig' -print)
-if (( ${#CALAMARES_PKGS[@]} == 0 )); then
-    echo "ERROR: makepkg did not produce a Calamares package." >&2
-    exit 1
-fi
-cp "${CALAMARES_PKGS[@]}" "$WORKSPACE/localrepo/"
-repo-add "$WORKSPACE/localrepo/archv3-local.db.tar.gz" "$WORKSPACE"/localrepo/calamares-*.pkg.tar.*
 
+rm -rf "$PROFILE_DIR" "$WORK_DIR"
 mkdir -p "$PROFILE_DIR" "$OUT_DIR"
 cp -r /usr/share/archiso/configs/releng/* "$PROFILE_DIR"/
-cat >> "$PROFILE_DIR/pacman.conf" <<EOF
 
-[archv3-local]
-SigLevel = Optional TrustAll
-Server = file://$WORKSPACE/localrepo
-EOF
-
-# --- Paket tambahan ----------------------------------------------------------
+# --- Paket tambahan (100% repositori resmi Arch, bebas gagal build AUR) ------
 printf '\n' >> "$PROFILE_DIR/packages.x86_64"
 cat >> "$PROFILE_DIR/packages.x86_64" <<'EOF'
 git
@@ -64,6 +33,7 @@ sof-firmware
 alsa-ucm-conf
 base-devel
 networkmanager
+network-manager-applet
 iwd
 pciutils
 dmidecode
@@ -75,7 +45,7 @@ e2fsprogs
 btrfs-progs
 reflector
 terminus-font
-# Desktop grafis Live USB: XFCE core packages only; omit optional plugins with unstable package names
+# Desktop grafis Live USB: XFCE core packages
 exo
 garcon
 thunar
@@ -100,20 +70,61 @@ xorg-server
 xorg-xinit
 lightdm
 lightdm-gtk-greeter
-network-manager-applet
 sudo
-# Calamares is supplied by the local package repository built from AUR above.
-calamares
 zenity
 polkit
 polkit-gnome
+gparted
 EOF
 
+# --- XFCE Live Desktop (akun liveuser dengan autologin LightDM) --------------
+mkdir -p "$AIROOTFS/etc/lightdm/lightdm.conf.d" \
+         "$AIROOTFS/etc/sudoers.d" \
+         "$AIROOTFS/usr/share/applications" \
+         "$AIROOTFS/etc/xdg/autostart"
 
-# --- XFCE Live Desktop (akun liveuser dengan autologin LightDM) ----------------
-mkdir -p "$AIROOTFS/etc/lightdm/lightdm.conf.d" "$AIROOTFS/etc/sudoers.d" "$AIROOTFS/usr/share/applications"
-# Akun live dibuat saat customize_airootfs berjalan DI DALAM rootfs hasil pacstrap.
-# Pada tahap ini airootfs masih overlay, sehingga /etc/passwd dan /etc/group belum ada.
+printf 'liveuser ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$AIROOTFS/etc/sudoers.d/90-liveuser"
+chmod 440 "$AIROOTFS/etc/sudoers.d/90-liveuser"
+
+cat > "$AIROOTFS/etc/lightdm/lightdm.conf.d/20-autologin.conf" <<'EOF'
+[Seat:*]
+autologin-user=liveuser
+autologin-user-timeout=0
+user-session=xfce
+greeter-session=lightdm-gtk-greeter
+EOF
+
+mkdir -p "$AIROOTFS/etc/systemd/system/graphical.target.wants"
+ln -sf /usr/lib/systemd/system/lightdm.service "$AIROOTFS/etc/systemd/system/display-manager.service"
+ln -sf /usr/lib/systemd/system/graphical.target "$AIROOTFS/etc/systemd/system/default.target"
+ln -sf /usr/lib/systemd/system/NetworkManager.service "$AIROOTFS/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
+
+# Desktop Entry untuk Menu Aplikasi, Layar Desktop XFCE, dan Autostart
+cat > "$AIROOTFS/usr/share/applications/arch-v3-install.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Install Arch Linux V3
+Comment=Instal Arch Linux V3 (Pilih Desktop Environment & Disk)
+Exec=/usr/local/bin/arch-v3-launch-installer
+Icon=system-software-install
+Terminal=false
+Categories=System;
+StartupNotify=true
+EOF
+
+# Autostart saat masuk desktop XFCE agar langsung menyapa pengguna
+cat > "$AIROOTFS/etc/xdg/autostart/arch-v3-welcome-gui.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Arch Linux V3 Welcome & Installer
+Comment=Mulai instalasi Arch Linux V3
+Exec=/usr/local/bin/arch-v3-launch-installer
+Icon=system-software-install
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+
+# Buat akun liveuser & pasang ikon di Desktop dalam customize_airootfs.sh
 CUSTOMIZE="$AIROOTFS/root/customize_airootfs.sh"
 if [[ ! -f "$CUSTOMIZE" ]]; then
     cat > "$CUSTOMIZE" <<'CUSTOMIZE_EOF'
@@ -123,40 +134,20 @@ CUSTOMIZE_EOF
 fi
 cat >> "$CUSTOMIZE" <<'CUSTOMIZE_EOF'
 
-# Arch V3: siapkan akun live setelah paket terpasang di rootfs.
-for group in wheel video audio storage input; do
+# Arch V3.1: siapkan akun liveuser & ikon desktop setelah paket terpasang
+for group in wheel video audio storage input network; do
     getent group "$group" >/dev/null 2>&1 || groupadd "$group"
 done
 if ! id liveuser >/dev/null 2>&1; then
-    useradd -m -G wheel,video,audio,storage,input -s /bin/bash liveuser
+    useradd -m -G wheel,video,audio,storage,input,network -s /bin/bash liveuser
+    passwd -d liveuser >/dev/null 2>&1 || true
 fi
+install -dm755 -o liveuser -g liveuser /home/liveuser/Desktop
+install -Dm755 -o liveuser -g liveuser /usr/share/applications/arch-v3-install.desktop /home/liveuser/Desktop/arch-v3-install.desktop
 CUSTOMIZE_EOF
 chmod 755 "$CUSTOMIZE"
-printf 'liveuser ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$AIROOTFS/etc/sudoers.d/90-liveuser"
-chmod 440 "$AIROOTFS/etc/sudoers.d/90-liveuser"
-cat > "$AIROOTFS/etc/lightdm/lightdm.conf.d/20-autologin.conf" <<'EOF'
-[Seat:*]
-autologin-user=liveuser
-autologin-user-timeout=0
-user-session=xfce
-greeter-session=lightdm-gtk-greeter
-EOF
-mkdir -p "$AIROOTFS/etc/systemd/system/graphical.target.wants"
-ln -sf /usr/lib/systemd/system/lightdm.service "$AIROOTFS/etc/systemd/system/display-manager.service"
-ln -sf /usr/lib/systemd/system/graphical.target "$AIROOTFS/etc/systemd/system/default.target"
-cat > "$AIROOTFS/usr/share/applications/arch-v3-install.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Install Arch Linux V3
-Comment=Start the Arch Linux installer
-Exec=/usr/local/bin/arch-v3-launch-installer
-Icon=system-software-install
-Terminal=false
-Categories=System;
-EOF
 
 # --- Modul keyboard/trackpad agar langsung jalan di Live USB -----------------
-# (applespi = keyboard/trackpad SPI MacBook A1708, acer_wmi = Acer Nitro)
 HW_MODULES='MODULES+=(applespi intel_lpss_pci spi_pxa2xx_platform acer_wmi)'
 if [[ -f "$AIROOTFS/etc/mkinitcpio.conf.d/archiso.conf" ]]; then
     echo "$HW_MODULES" >> "$AIROOTFS/etc/mkinitcpio.conf.d/archiso.conf"
@@ -166,44 +157,28 @@ else
 fi
 
 # --- Parameter kernel pada menu boot (GRUB, syslinux, systemd-boot) ----------
-# Cocok untuk 'archisobasedir=arch' maupun placeholder 'archisobasedir=%INSTALL_DIR%'
 for d in grub syslinux efiboot; do
     [[ -d "$PROFILE_DIR/$d" ]] || continue
     find "$PROFILE_DIR/$d" -type f \( -name '*.cfg' -o -name '*.conf' \) \
         -exec sed -i -E "s/(archisobasedir=[^ ]+)/\1 $LIVE_KPARAMS/g" {} +
 done
 
-# --- Installer Live USB ------------------------------------------------------
-install -Dm755 "$WORKSPACE/install-arch-live.sh"   "$AIROOTFS/root/install-arch-live.sh"
-install -Dm755 "$WORKSPACE/setup-arch-v3-dual.sh"  "$AIROOTFS/root/setup-arch-v3-dual.sh"
-install -Dm755 "$WORKSPACE/arch-v3-welcome.sh"     "$AIROOTFS/usr/local/bin/arch-v3-welcome"
+# --- Salin semua script installer ke Live ISO --------------------------------
+install -Dm755 "$WORKSPACE/install-arch-live.sh"              "$AIROOTFS/root/install-arch-live.sh"
+install -Dm755 "$WORKSPACE/setup-arch-v3-dual.sh"             "$AIROOTFS/root/setup-arch-v3-dual.sh"
+install -Dm755 "$WORKSPACE/arch-v3-welcome.sh"                "$AIROOTFS/usr/local/bin/arch-v3-welcome"
 install -Dm755 "$WORKSPACE/scripts/arch-v3-launch-installer.sh" "$AIROOTFS/usr/local/bin/arch-v3-launch-installer"
-install -Dm644 "$WORKSPACE/calamares/README.md" "$AIROOTFS/usr/share/doc/arch-v3/calamares-integration-status.md"
 mkdir -p "$AIROOTFS/usr/local/bin"
 ln -sf /root/install-arch-live.sh "$AIROOTFS/usr/local/bin/arch-v3-install"
 
-# install -Dm755 di atas sudah menetapkan bit executable pada overlay; jangan edit
-# profiledef.sh dengan sed multiline (itu yang sebelumnya memicu "unknown command: [").
-
-# Tampilkan layar sambutan + tawaran installer di tty1 setelah autologin root
-mkdir -p "$AIROOTFS/root"
-cat >> "$AIROOTFS/root/.zlogin" <<'EOF'
-
-# --- Arch V3 Live USB: tawarkan installer di tty1 ---
-if [[ -z "${ARCH_V3_WELCOMED:-}" && "$(tty)" == "/dev/tty1" ]]; then
-    export ARCH_V3_WELCOMED=1
-    /usr/local/bin/arch-v3-welcome
-fi
-EOF
-
 cat > "$AIROOTFS/etc/motd" <<'EOF'
-Arch Linux V3 Live USB
-Live desktop: XFCE   |   Installer grafis: ikon 'Install Arch Linux V3'   |   Wi-Fi: iwctl
+Arch Linux V3.1 Live USB
+Live desktop: XFCE | GUI Installer: Klik 'Install Arch Linux V3' di Desktop | CLI: sudo arch-v3-install
 EOF
 
 # --- Bangun ISO --------------------------------------------------------------
 mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$PROFILE_DIR"
 
-# Checksum SHA-256 (dipakai make-live-usb.sh untuk verifikasi)
+# Checksum SHA-256
 (cd "$OUT_DIR" && for f in *.iso; do sha256sum "$f" > "$f.sha256"; done)
 ls -lh "$OUT_DIR"

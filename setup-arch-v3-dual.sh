@@ -88,7 +88,7 @@ sudo pacman -S --needed --noconfirm base-devel git wget curl dkms linux-headers 
     intel-ucode intel-media-driver libva-intel-driver vulkan-intel \
     networkmanager iwd bluez bluez-utils wireless-regdb \
     pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber \
-    easyeffects lsp-plugins calf \
+    easyeffects lsp-plugins calf dolphin \
     thermald acpi_call zram-generator brightnessctl playerctl \
     libinput xf86-input-libinput
 
