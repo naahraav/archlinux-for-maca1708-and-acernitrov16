@@ -80,3 +80,6 @@ Skrip build diperbaiki agar pembuatan akun `liveuser` dilakukan melalui `airootf
 ## Build-fix 2 (2026-10)
 
 This revision builds the `calamares` AUR package in a non-root `builder` account, creates a local pacman repository for it, and adds that repository to the archiso profile. XFCE group names were replaced with explicit package names to avoid interactive package-group selection in CI. This addresses the specific `target not found: calamares` error and the group-selection prompt in the supplied GitHub Actions log. The build still depends on the current AUR PKGBUILD and upstream dependencies; it must be run in Actions to verify. **This does not complete or validate the Calamares installation configuration, partitioning, bootloader, or desktop-choice integration. Test only in a disposable VM.**
+
+
+Build-fix 3: menghapus paket plugin XFCE opsional yang menyebabkan `target not found` (termasuk `xfce4-verve`) dan mempertahankan paket inti desktop. Ini memperbaiki error nama paket yang terlihat, tetapi belum merupakan bukti build ISO berhasil; jalankan Actions lagi dan kirim log jika muncul error berikutnya. Integrasi Calamares masih perlu konfigurasi installer Arch yang valid dan pengujian end-to-end.
