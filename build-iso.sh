@@ -15,9 +15,41 @@ AIROOTFS="$PROFILE_DIR/airootfs"
 # Parameter kernel aman untuk NVMe & hybrid GPU saat Live Boot
 LIVE_KPARAMS="nvme_core.default_ps_max_latency_us=0 intremap=nosid"
 
-pacman -Syu --noconfirm archiso git
+# Calamares is not available from the standard Arch repositories in this build.
+# Build the AUR package in a non-root account and expose it through a local pacman repo.
+pacman -Syu --noconfirm archiso git base-devel sudo
+if ! id builder >/dev/null 2>&1; then
+    useradd --create-home --groups wheel builder
+fi
+printf 'builder ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/90-builder
+chmod 440 /etc/sudoers.d/90-builder
+mkdir -p /tmp/calamares-aur "$WORKSPACE/localrepo"
+chown -R builder:builder /tmp/calamares-aur
+if ! git clone https://aur.archlinux.org/calamares.git /tmp/calamares-aur/repo; then
+    echo "ERROR: Could not clone the Calamares AUR package." >&2
+    exit 1
+fi
+chown -R builder:builder /tmp/calamares-aur/repo
+if ! runuser -u builder -- bash -lc 'cd /tmp/calamares-aur/repo && makepkg -s --noconfirm'; then
+    echo "ERROR: Building the Calamares AUR package failed. See the log above." >&2
+    exit 1
+fi
+mapfile -t CALAMARES_PKGS < <(find /tmp/calamares-aur/repo -maxdepth 1 -type f -name 'calamares-*.pkg.tar.*' ! -name '*.sig' -print)
+if (( ${#CALAMARES_PKGS[@]} == 0 )); then
+    echo "ERROR: makepkg did not produce a Calamares package." >&2
+    exit 1
+fi
+cp "${CALAMARES_PKGS[@]}" "$WORKSPACE/localrepo/"
+repo-add "$WORKSPACE/localrepo/archv3-local.db.tar.gz" "$WORKSPACE"/localrepo/calamares-*.pkg.tar.*
+
 mkdir -p "$PROFILE_DIR" "$OUT_DIR"
 cp -r /usr/share/archiso/configs/releng/* "$PROFILE_DIR"/
+cat >> "$PROFILE_DIR/pacman.conf" <<EOF
+
+[archv3-local]
+SigLevel = Optional TrustAll
+Server = file://$WORKSPACE/localrepo
+EOF
 
 # --- Paket tambahan ----------------------------------------------------------
 printf '\n' >> "$PROFILE_DIR/packages.x86_64"
@@ -43,16 +75,62 @@ e2fsprogs
 btrfs-progs
 reflector
 terminus-font
-# Desktop grafis Live USB: XFCE
-xfce4
-xfce4-goodies
+# Desktop grafis Live USB: XFCE (list packages explicitly to avoid interactive group prompts)
+exo
+garcon
+thunar
+thunar-volman
+tumbler
+xfce4-appfinder
+xfce4-panel
+xfce4-power-manager
+xfce4-session
+xfce4-settings
+xfce4-terminal
+xfconf
+xfdesktop
+xfwm4
+mousepad
+parole
+ristretto
+thunar-archive-plugin
+thunar-media-tags-plugin
+xfburn
+xfce4-battery-plugin
+xfce4-clipman-plugin
+xfce4-cpufreq-plugin
+xfce4-cpugraph-plugin
+xfce4-dict
+xfce4-diskperf-plugin
+xfce4-eyes-plugin
+xfce4-fsguard-plugin
+xfce4-genmon-plugin
+xfce4-mount-plugin
+xfce4-mpc-plugin
+xfce4-netload-plugin
+xfce4-notes-plugin
+xfce4-notifyd
+xfce4-places-plugin
+xfce4-pulseaudio-plugin
+xfce4-screensaver
+xfce4-screenshooter
+xfce4-sensors-plugin
+xfce4-smartbookmark-plugin
+xfce4-systemload-plugin
+xfce4-taskmanager
+xfce4-time-out-plugin
+xfce4-timer-plugin
+xfce4-verve
+xfce4-weather-plugin
+xfce4-whiskermenu-plugin
+xfce4-xkb-plugin
 xorg-server
 xorg-xinit
 lightdm
 lightdm-gtk-greeter
 network-manager-applet
 sudo
-# Calamares GUI installer and graphical desktop-choice dialog
+# Calamares is supplied by the local package repository built from AUR above.
 calamares
 zenity
 polkit

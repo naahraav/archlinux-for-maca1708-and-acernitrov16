@@ -70,3 +70,13 @@ Yang dilakukan installer:
 ## Status integrasi Calamares (penting)
 
 Sumber ini sekarang menyertakan paket Calamares dan entry-point GUI dengan dialog pilihan desktop. **Namun integrasi ini belum layak disebut final/teruji**: lingkungan pembuatan saat ini tidak menyediakan Arch Linux + `mkarchiso` atau VM bootable untuk menguji proses partisi, instalasi paket, GRUB UEFI, dan penerapan desktop pilihan dari awal sampai akhir. Dialog menyimpan pilihan, tetapi belum diklaim sebagai handoff instalasi yang telah tervalidasi. Jangan gunakan untuk memasang ke disk utama sebelum build ISO dan pengujian VM selesai. Installer TUI lama masih disertakan sebagai referensi/pemulihan.
+
+
+## Catatan perbaikan workflow build (2026-10)
+
+Skrip build diperbaiki agar pembuatan akun `liveuser` dilakukan melalui `airootfs/root/customize_airootfs.sh` di dalam root filesystem hasil build, bukan saat `airootfs` masih berupa overlay. Blok `sed` multiline yang sebelumnya rusak dan menyebabkan `unknown command: [` juga dihapus. Perubahan ini memperbaiki dua penyebab yang tampak pada log, tetapi build ISO tetap harus dijalankan ulang dan seluruh ISO belum dinyatakan teruji.
+
+
+## Build-fix 2 (2026-10)
+
+This revision builds the `calamares` AUR package in a non-root `builder` account, creates a local pacman repository for it, and adds that repository to the archiso profile. XFCE group names were replaced with explicit package names to avoid interactive package-group selection in CI. This addresses the specific `target not found: calamares` error and the group-selection prompt in the supplied GitHub Actions log. The build still depends on the current AUR PKGBUILD and upstream dependencies; it must be run in Actions to verify. **This does not complete or validate the Calamares installation configuration, partitioning, bootloader, or desktop-choice integration. Test only in a disposable VM.**
