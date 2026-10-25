@@ -62,15 +62,26 @@ EOF
 
 # --- XFCE Live Desktop (akun liveuser dengan autologin LightDM) ----------------
 mkdir -p "$AIROOTFS/etc/lightdm/lightdm.conf.d" "$AIROOTFS/etc/sudoers.d" "$AIROOTFS/usr/share/applications"
-# Pastikan grup tambahan ada di rootfs sebelum membuat akun live.
-for group in wheel video audio storage input; do
-    if ! grep -q "^${group}:" "$AIROOTFS/etc/group"; then
-        groupadd -R "$AIROOTFS" "$group"
-    fi
-done
-if ! grep -q '^liveuser:' "$AIROOTFS/etc/passwd"; then
-    useradd -R "$AIROOTFS" -m -G wheel,video,audio,storage,input -s /bin/bash liveuser
+# Akun live dibuat saat customize_airootfs berjalan DI DALAM rootfs hasil pacstrap.
+# Pada tahap ini airootfs masih overlay, sehingga /etc/passwd dan /etc/group belum ada.
+CUSTOMIZE="$AIROOTFS/root/customize_airootfs.sh"
+if [[ ! -f "$CUSTOMIZE" ]]; then
+    cat > "$CUSTOMIZE" <<'CUSTOMIZE_EOF'
+#!/usr/bin/env bash
+set -e
+CUSTOMIZE_EOF
 fi
+cat >> "$CUSTOMIZE" <<'CUSTOMIZE_EOF'
+
+# Arch V3: siapkan akun live setelah paket terpasang di rootfs.
+for group in wheel video audio storage input; do
+    getent group "$group" >/dev/null 2>&1 || groupadd "$group"
+done
+if ! id liveuser >/dev/null 2>&1; then
+    useradd -m -G wheel,video,audio,storage,input -s /bin/bash liveuser
+fi
+CUSTOMIZE_EOF
+chmod 755 "$CUSTOMIZE"
 printf 'liveuser ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$AIROOTFS/etc/sudoers.d/90-liveuser"
 chmod 440 "$AIROOTFS/etc/sudoers.d/90-liveuser"
 cat > "$AIROOTFS/etc/lightdm/lightdm.conf.d/20-autologin.conf" <<'EOF'
@@ -121,10 +132,8 @@ install -Dm644 "$WORKSPACE/calamares/README.md" "$AIROOTFS/usr/share/doc/arch-v3
 mkdir -p "$AIROOTFS/usr/local/bin"
 ln -sf /root/install-arch-live.sh "$AIROOTFS/usr/local/bin/arch-v3-install"
 
-# Pastikan permission tetap executable di dalam image
-sed -i '/^file_permissions=(/a\  ["/root/install-arch-live.sh"]="0:0:755"\n  ["/root/setup-arch-v3-dual.sh"]="0:0:755"\n  ["/usr/local/bin/arch-v3-welcome"]="0:0:755"
-  ["/usr/local/bin/arch-v3-launch-installer"]="0:0:755"' \
-    "$PROFILE_DIR/profiledef.sh"
+# install -Dm755 di atas sudah menetapkan bit executable pada overlay; jangan edit
+# profiledef.sh dengan sed multiline (itu yang sebelumnya memicu "unknown command: [").
 
 # Tampilkan layar sambutan + tawaran installer di tty1 setelah autologin root
 mkdir -p "$AIROOTFS/root"
